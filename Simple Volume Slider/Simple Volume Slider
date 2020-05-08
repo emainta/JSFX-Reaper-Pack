@@ -1,0 +1,22 @@
+desc:Simple Volume Slider
+// Simple Volume Slider - Hello World
+slider1:0<-60,12,0.1>Volume (dB)
+
+in_pin:Left Input
+in_pin:Right Input
+out_pin:Left Output
+out_pin:Right Output
+
+
+@init
+AMP_dB = 8.68588963806504;
+
+@slider
+vol = exp(slider1/AMP_DB);
+
+@sample
+spl0=spl0*vol;
+spl1=spl1*vol;
+
+// Marco TVB
+
