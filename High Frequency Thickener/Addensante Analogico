@@ -37,11 +37,11 @@
 desc:Addensatore Analogico
 desc:Addensatore Analogico - Limiter HF
 
-slider1:0.0<-30.0,0.0,0.1>Threshold
-slider2:-0.1<-20.0,0.0,0.1>Ceiling
+slider1:0.0<-60.0,0.0,0.1>Threshold
+slider2:-0.1<-40.0,0.0,0.1>Ceiling
 slider3:0<0,1200,1>Release (ms) (0=auto)
 slider4:8000<0,22000,1>Crossover (Hz)
-slider5:0<-60,12,0.1>HF Post Gain (dB)
+// slider5:0.0<-30.0,0.0,0.1>HF Post Gain (dB)
 
 in_pin:left input
 in_pin:right input
@@ -76,7 +76,8 @@ xLP = exp(-2.0*$pi*freqLP/srate);
 a0LP = 1.0-xLP;
 b1LP = -xLP;
   
-vol = exp(slider5/log2db);
+// vol = exp(slider5/log2db);
+vol = exp(slider1/log2db);
 
 @sample
 
