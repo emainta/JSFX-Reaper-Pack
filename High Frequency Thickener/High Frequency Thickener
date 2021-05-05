@@ -1,0 +1,163 @@
+//This is a modified version of the Event Horizon Clipper/Limiter by Scott Stillwell.
+//It works only on high frequencies and gives to the track an analog feel.
+//
+// Copyright 2006, Thomas Scott Stillwell
+// All rights reserved.
+//
+//Redistribution and use in source and binary forms, with or without modification, are permitted
+//provided that the following conditions are met:
+//
+//Redistributions of source code must retain the above copyright notice, this list of conditions
+//and the following disclaimer.
+//
+//Redistributions in binary form must reproduce the above copyright notice, this list of conditions
+//and the following disclaimer in the documentation and/or other materials provided with the distribution.
+//
+//The name of Thomas Scott Stillwell may not be used to endorse or
+//promote products derived from this software without specific prior written permission.
+//
+//THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+//IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+//FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
+//BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+//(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+//PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+//STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+//THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+desc:High Frequency Thickener
+desc:Addensatore Analogico - Limiter HF (v 1.1.0)
+
+// Release notes v 1.1.0
+// - New GUI
+// - Monitor option
+
+slider1:0.0<-60.0,0.0,0.1>Threshold
+slider2:-0.1<-40.0,0.0,0.1>Ceiling
+slider3:0<0,1200,1>Release (ms) (0=auto)
+slider4:8000<0,22000,1>Crossover (Hz)
+slider5:0<0,1,1{Off,On}>Listen
+
+in_pin:left input
+in_pin:right input
+out_pin:output left
+out_pin:output right
+
+@init
+cDenorm=10^-30;
+pi = 3.1415926535;
+log2db = 8.6858896380650365530225783783321; // 20 / ln(10)
+db2log = 0.11512925464970228420089957273422; // ln(10) / 20
+attime=0.004;
+reltime=0.200;
+atcoef=exp(-1/(attime * srate));
+relcoef=exp(-1/(reltime * srate));
+gr_alpha=0;
+asd = exp(-(1/srate));
+
+@slider
+thresh=exp(slider1 * db2log);
+threshdb=slider1;
+ceiling=exp(slider2 * db2log);
+ceildb=slider2;
+makeup=exp((ceildb-threshdb) * db2log);
+makeupdb=ceildb-threshdb;
+peakdb = ceildb+25;
+peaklvl = exp(peakdb * db2log);
+release=slider3/1000;
+release==0 ? (reltime = overdb / 125) : (reltime = release);
+relcoef=exp(-1/(reltime * srate));
+
+freqLP = min(slider4,srate);
+xLP = exp(-2.0*$pi*freqLP/srate);
+a0LP = 1.0-xLP;
+b1LP = -xLP;
+
+listen = slider5;
+vol = exp(slider1/log2db);
+
+@sample
+
+s0 = spl0;
+s1 = spl1;
+
+sLFl = (tmplLP = a0LP*s0 - b1LP*tmplLP + cDenorm);
+sLFr = (tmprLP = a0LP*s1 - b1LP*tmprLP + cDenorm);
+
+sHF0 = s0 - (tmplLP = a0LP*s0 - b1LP*tmplLP + cDenorm);
+sHF1 = s1 - (tmprLP = a0LP*s1 - b1LP*tmprLP + cDenorm);
+
+sHF0=sHF0*makeup;
+sHF1=sHF1*makeup;
+
+abs0=abs(sHF0);
+abs1=abs(sHF1);
+overdbv = max(abs0, abs1);
+overdb = 2.08136898 * log(overdbv) * log2db - ceilingdb;
+
+overdb > rundb ? (                                  // calculate overshoot (and thus GR)
+  rundb = overdb + atcoef * (rundb - overdb);       //    use attack and release to
+  ) : (                                               //    smoothly scale gain reduction
+  rundb = overdb + relcoef * (rundb - overdb);
+  );
+overdb = max(0,rundb);
+
+release == 0 ? (                                    // Auto-release?  Compute release time
+  overdb > maxover ? (
+    maxover = overdb;
+    reltime = overdb / 125;                         // release at constant 125 dB/sec.
+    relcoef = exp(-1/(reltime * srate));
+  );
+  runmax = maxover + relcoef * (runmax - maxover);  // highest peak for setting att/rel decays in reltime
+  maxover = runmax;
+);
+
+gr_alpha_prec = gr_alpha;
+grnow = (abs((sHF0+sHF1)/2) - ceiling);
+gr_alpha = max(0, grnow);
+gr_alpha < (asd*gr_alpha_prec) ? (gr_alpha = asd*gr_alpha_prec );
+
+gr = exp(overdb * db2log);
+
+sHF0*=gr;
+sHF1*=gr;
+
+sHF0=min(ceiling,abs(sHF0))*sign(sHF0);             // If it gets past the limiter, whack it.
+sHF1=min(ceiling,abs(sHF1))*sign(sHF1);             // since we don't lookahead, some stuff will
+
+sHF0*=vol;
+sHF1*=vol;
+
+// monitor or sum bands
+listen == 1 ? (
+outL = (sHF0);
+outR = (sHF1);
+) : (
+outL = (sLFl + sHF0);
+outR = (sLFr + sHF1);
+);
+
+spl0 = (outL);
+spl1 = (outR);
+
+@gfx 0 32
+gfx_setfont(1,"Helvetica",20, 'b');
+
+// Rectangle
+gfx_r=1; gfx_g=gfx_b=0;
+gfx_a=min(0.1*gr_alpha,1);
+
+gfx_x=gfx_y=0;
+gfx_rectto(gfx_x + gfx_w , gfx_y + gfx_h);
+//gfx_y=(gfx_h/2);
+//gfx_x+= 10;
+//gfx_circle(gfx_x,gfx_y,10, gr_alpha);
+
+//gfx_r=1; gfx_g=gfx_b=0; gfx_a=1;
+//gfx_x = 100; gfx_y = gfx_h/2;
+//gfx_rect(gfx_x, gfx_y, gr_alpha*10, 10);
+
+// Scritta
+gfx_r=gfx_g=gfx_b=gfx_a=1;
+gfx_x=gfx_y=0;
+gfx_drawstr("High Frequency Clipping", 1|4, gfx_w, gfx_h);
